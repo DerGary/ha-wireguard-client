@@ -9,6 +9,9 @@ readonly IFACE=hawg0 CONF=/tmp/hawg0.conf WWW=/tmp/www
 # WireGuard rekeys every 2 minutes, keepalive keeps traffic flowing,
 # so an older handshake means the server is not answering.
 readonly MAX_HANDSHAKE_AGE=180
+# wg retries a failing DNS lookup on its own for minutes, which would stall
+# this loop. Fail fast instead, the loop retries every 15 seconds anyway.
+export WG_ENDPOINT_RESOLUTION_RETRIES=0
 
 endpoint=$(bashio::config 'endpoint')
 server_key=$(bashio::config 'server_public_key')
@@ -54,19 +57,14 @@ table { margin-top: 24px; border-collapse: collapse; } td { padding: 6px 16px 6p
 HTML
     mv ${WWW}/index.html.tmp ${WWW}/index.html
 
-    # Same attributes every time, so Home Assistant only records real changes.
-    curl -fsS -m 5 -o /dev/null -X POST \
-        -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" -H "Content-Type: application/json" \
-        -d "$(jq -n --arg state "$state" --arg endpoint "$endpoint" --arg address "$address" \
-            '{state: $state, attributes: {friendly_name: "WireGuard Client", device_class: "connectivity", endpoint: $endpoint, address: $address}}')" \
-        http://supervisor/core/api/states/binary_sensor.wireguard_client 2>/dev/null || true
+    wg-sensor "$state" || true
 }
 
 # A crashed run can leave the interface behind on the host network.
 ip link del "$IFACE" 2>/dev/null || true
 
 if ! wg-quick up "$CONF"; then
-    bashio::log.warning "Tunnel konnte nicht gestartet werden (Internet weg oder Server-Name nicht auflösbar?). Neuer Versuch in 15 Sekunden."
+    bashio::log.warning "Tunnel konnte nicht gestartet werden, Grund steht direkt darüber. Neuer Versuch in 15 Sekunden."
     write_status off 0 0 0 "Tunnel konnte nicht gestartet werden, neuer Versuch läuft" || true
     sleep 15
     exit 1
@@ -87,7 +85,7 @@ while true; do
         state=off
         message="Server antwortet nicht, Verbindung wird weiter versucht"
         # Resolve the server name again, its IP might have changed.
-        wg set "$IFACE" peer "$server_key" endpoint "$endpoint" 2>/dev/null || true
+        timeout 10 wg set "$IFACE" peer "$server_key" endpoint "$endpoint" 2>/dev/null || true
     fi
 
     if [[ $state != "$last_state" ]]; then

@@ -1,11 +1,13 @@
 name: CI
 
-# Runs only on GitHub: the Gitea copy of this repo is where Renovate works,
-# GitHub tests, builds and publishes.
+# Runs only on GitHub. The main repo is on Gitea, where Renovate works, and a
+# push mirror copies every branch here. GitHub tests, reports the result back
+# to Gitea (commit status "github-ci", required to merge), builds and publishes.
 on:
   push:
     branches:
       - main
+      - "renovate/**"
   pull_request:
     branches:
       - main
@@ -41,6 +43,23 @@ jobs:
       - name: Run end-to-end test
         run: test/e2e.sh
 
+  report:
+    name: Report to Gitea
+    needs: [lint, e2e]
+    if: always() && github.server_url == 'https://github.com' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set commit status github-ci on Gitea
+        env:
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+          STATE: ${{ needs.lint.result == 'success' && needs.e2e.result == 'success' && 'success' || 'failure' }}
+          URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          jq -n --arg state "$STATE" --arg url "$URL" \
+            '{state: $state, context: "github-ci", target_url: $url, description: "Lint and end-to-end test on GitHub"}' |
+            curl -fsS -o /dev/null -X POST -H "Authorization: token $GITEA_TOKEN" -H "Content-Type: application/json" -d @- \
+              "https://gitea.gerasch.dev/api/v1/repos/privat/ha-wireguard-client/statuses/$GITHUB_SHA"
+
   release:
     name: Check for new version
     needs: [lint, e2e]
@@ -55,21 +74,42 @@ jobs:
         uses: actions/checkout@v7.0.1
 
       # Publish only when config.yaml carries a version that is not on ghcr yet,
-      # so an existing tag is never overwritten.
+      # so an existing tag is never overwritten. Any unexpected registry answer
+      # (rate limit, outage) fails the job instead of guessing.
       - name: Compare version with registry
         id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          EVENT: ${{ github.event_name }}
         run: |
-          image=$(yq -r .image wireguard_client/config.yaml)
+          repo=$(yq -r .image wireguard_client/config.yaml); repo=${repo#ghcr.io/}
           version=$(yq -r .version wireguard_client/config.yaml)
-          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          if [[ "${{ github.event_name }}" == push ]] && ! docker buildx imagetools inspect "$image:$version" >/dev/null 2>&1; then
-            echo "Publishing $image:$version"
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "publish=false" >> "$GITHUB_OUTPUT"
+          publish=false
+          token_code=$(curl -sS -o token.json -w '%{http_code}' -u "$ACTOR:$GH_TOKEN" \
+            "https://ghcr.io/token?scope=repository:$repo:pull")
+          case $token_code in
+            200)
+              code=$(curl -sS -o /dev/null -w '%{http_code}' -I \
+                -H "Authorization: Bearer $(jq -r .token token.json)" \
+                -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json" \
+                "https://ghcr.io/v2/$repo/manifests/$version")
+              case $code in
+                200) echo "$repo:$version exists" ;;
+                404) publish=true ;;
+                *) echo "::error::Registry answered $code for $repo:$version"; exit 1 ;;
+              esac
+              ;;
+            # No package yet. Without access, the push fails too, nothing is overwritten.
+            401 | 403) publish=true ;;
+            *) echo "::error::Token request answered $token_code"; exit 1 ;;
+          esac
+          rm -f token.json
+          if [[ $EVENT != push || $GITHUB_REF != refs/heads/main ]]; then
+            publish=false
           fi
+          echo "Publish $repo:$version: $publish"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build

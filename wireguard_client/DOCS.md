@@ -16,8 +16,9 @@ Verbindet dieses Home Assistant dauerhaft mit einem WireGuard-Server.
    | Server-Adresse | `[Peer]` → `Endpoint` |
    | Erlaubte IPs | nur das VPN-Netz, z. B. `172.16.0.0/24` |
 
-   `DNS` aus der .conf wird absichtlich nicht übernommen, und `AllowedIPs = 0.0.0.0/0`
-   gehört hier nicht hin: sonst ginge der ganze Internetverkehr des Hauses über den Server.
+   `DNS` aus der .conf wird absichtlich nicht übernommen. Bei den erlaubten IPs
+   nimmt die App nur private Netze an: Mit `0.0.0.0/0` ginge sonst der ganze
+   Internetverkehr von Home Assistant über den Server.
 3. Speichern und die App starten.
 
 Die App startet danach bei jedem Neustart von selbst. Der Watchdog wird beim

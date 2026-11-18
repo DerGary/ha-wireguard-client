@@ -16,7 +16,7 @@ configuration:
     description: Endpoint aus dem [Peer]-Block, z. B. vpn.example.com:51820.
   allowed_ips:
     name: Erlaubte IPs
-    description: Netze, die durch den Tunnel gehen, mit Komma getrennt. Nur das VPN-Netz eintragen, nicht 0.0.0.0/0.
+    description: Netze, die durch den Tunnel gehen, mit Komma getrennt. Nur private Netze (10.x, 172.16-31.x, 192.168.x, 100.64-127.x), z. B. das VPN-Netz.
   persistent_keepalive:
     name: Keepalive (Sekunden)
-    description: Hält die Verbindung durch NAT und Router offen. 25 ist der empfohlene Wert, 0 schaltet es aus.
+    description: Hält die Verbindung durch NAT und Router offen. 25 ist der empfohlene Wert. Wird auch zur Erkennung von Verbindungsabbrüchen gebraucht.

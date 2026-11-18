@@ -8,7 +8,7 @@
   ],
   "packageRules": [
     {
-      "description": "Everything except major updates merges itself once CI is green",
+      "description": "Everything except major updates merges itself. Gitea only merges once the GitHub CI reported commit status github-ci as success (branch protection)",
       "matchUpdateTypes": [
         "minor",
         "patch",

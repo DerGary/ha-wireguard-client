@@ -2,37 +2,84 @@
 # shellcheck shell=bash
 # ==============================================================================
 # Validate the options and write the WireGuard config.
-# A failure here stops the app, so a broken config shows up in the log at once.
+# A failure here stops the app, so a broken config shows up in the log at once
+# instead of ending in an endless reconnect loop.
 # ==============================================================================
+
+# ip_to_int <a.b.c.d>: prints the address as integer, fails on invalid input
+ip_to_int() {
+    local IFS=. a b c d
+    read -r a b c d <<< "$1"
+    for octet in "$a" "$b" "$c" "$d"; do
+        [[ $octet =~ ^(0|[1-9][0-9]{0,2})$ ]] && ((10#$octet <= 255)) || return 1
+    done
+    echo $(((10#$a << 24) | (10#$b << 16) | (10#$c << 8) | 10#$d))
+}
+
+# in_private_range <a.b.c.d/prefix>: the network lies inside a private range.
+# Anything else, 0.0.0.0/0 and its halves included, would route internet
+# traffic of the whole Home Assistant host through the server.
+in_private_range() {
+    local net=${1%/*} prefix=${1#*/} ip range rnet rprefix mask
+    [[ $1 == */* && $prefix =~ ^[0-9]{1,2}$ ]] && ((10#$prefix <= 32)) || return 1
+    ip=$(ip_to_int "$net") || return 1
+    for range in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10; do
+        rnet=$(ip_to_int "${range%/*}") rprefix=${range#*/}
+        mask=$(((0xFFFFFFFF << (32 - rprefix)) & 0xFFFFFFFF))
+        if ((10#$prefix >= rprefix && (ip & mask) == rnet)); then
+            return 0
+        fi
+    done
+    return 1
+}
 
 if ! bashio::config 'private_key' | wg pubkey >/dev/null 2>&1; then
     bashio::exit.nok "Der Private Key ist ungültig."
 fi
-
-# 0.0.0.0/0 would send all traffic of the whole Home Assistant host through
-# the server, and cut it off from the internet whenever the tunnel is down.
-if [[ ",$(bashio::config 'allowed_ips' | tr -d ' ')," == *"/0,"* ]]; then
-    bashio::exit.nok "Erlaubte IPs darf kein /0-Netz enthalten (z. B. 0.0.0.0/0). Nur das VPN-Netz eintragen, z. B. 172.16.0.0/24."
+if bashio::config.has_value 'preshared_key' && ! bashio::config 'preshared_key' | wg pubkey >/dev/null 2>&1; then
+    bashio::exit.nok "Der Preshared Key ist ungültig."
 fi
 
-# Everything written at runtime lives on tmpfs (/tmp), so a full disk on the
-# host can not take the tunnel down.
-mkdir -p /tmp/www
-{
-    echo "[Interface]"
-    echo "PrivateKey = $(bashio::config 'private_key')"
-    echo "Address = $(bashio::config 'address')"
-    echo
-    echo "[Peer]"
-    echo "PublicKey = $(bashio::config 'server_public_key')"
-    if bashio::config.has_value 'preshared_key'; then
-        echo "PresharedKey = $(bashio::config 'preshared_key')"
+address=$(bashio::config 'address')
+address_prefix=32
+[[ $address == */* ]] && address_prefix=${address#*/}
+if ! in_private_range "${address%/*}/${address_prefix}"; then
+    bashio::exit.nok "Die VPN-Adresse ${address} ist ungültig."
+fi
+
+allowed_ips=$(bashio::config 'allowed_ips' | tr -d ' ')
+IFS=, read -r -a networks <<< "$allowed_ips"
+for network in "${networks[@]}"; do
+    if ! in_private_range "$network"; then
+        bashio::exit.nok "Erlaubte IPs: ${network} ist kein privates Netz. Nur das VPN-Netz eintragen, z. B. 172.16.0.0/24, niemals 0.0.0.0/0."
     fi
-    echo "Endpoint = $(bashio::config 'endpoint')"
-    echo "AllowedIPs = $(bashio::config 'allowed_ips')"
-    echo "PersistentKeepalive = $(bashio::config 'persistent_keepalive')"
-} > /tmp/hawg0.conf
-chmod 600 /tmp/hawg0.conf
+done
+
+# Everything written at runtime lives on tmpfs (/tmp), so a full disk on the
+# host can not take the tunnel down. The config holds the keys: owner only.
+mkdir -p /tmp/www
+(
+    umask 077
+    {
+        echo "[Interface]"
+        echo "PrivateKey = $(bashio::config 'private_key')"
+        echo "Address = ${address}"
+        echo
+        echo "[Peer]"
+        echo "PublicKey = $(bashio::config 'server_public_key')"
+        if bashio::config.has_value 'preshared_key'; then
+            echo "PresharedKey = $(bashio::config 'preshared_key')"
+        fi
+        echo "Endpoint = $(bashio::config 'endpoint')"
+        echo "AllowedIPs = ${allowed_ips}"
+        echo "PersistentKeepalive = $(bashio::config 'persistent_keepalive')"
+    } > /tmp/hawg0.conf
+)
+
+# Fixed sensor attributes for wg-sensor, read by the service and its finish script.
+jq -n --arg endpoint "$(bashio::config 'endpoint')" --arg address "$address" \
+    '{friendly_name: "WireGuard Client", device_class: "connectivity", endpoint: $endpoint, address: $address}' \
+    > /tmp/sensor-attributes.json
 
 # The Supervisor watchdog is off after install. Turn it on once, so it can
 # still be switched off by hand later.

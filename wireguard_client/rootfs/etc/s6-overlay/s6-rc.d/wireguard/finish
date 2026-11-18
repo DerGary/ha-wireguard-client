@@ -2,7 +2,4 @@
 # shellcheck shell=bash
 # Take the tunnel down and report it, so Home Assistant never shows a stale "on".
 wg-quick down /tmp/hawg0.conf >/dev/null 2>&1 || ip link del hawg0 2>/dev/null || true
-curl -fsS -m 2 -o /dev/null -X POST \
-    -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" -H "Content-Type: application/json" \
-    -d '{"state": "off", "attributes": {"friendly_name": "WireGuard Client", "device_class": "connectivity"}}' \
-    http://supervisor/core/api/states/binary_sensor.wireguard_client 2>/dev/null || true
+wg-sensor off || true

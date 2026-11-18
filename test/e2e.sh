@@ -59,8 +59,10 @@ expect_stop() {
 start_client "not-a-key"
 expect_stop "Private Key ist ungültig"
 start_client "$client_priv" "10.99.0.0/24, 0.0.0.0/0"
-expect_stop "kein /0-Netz"
-pass "broken key and /0 route stop the app with message"
+expect_stop "0.0.0.0/0 ist kein privates Netz"
+start_client "$client_priv" "0.0.0.0/1,128.0.0.0/1"
+expect_stop "0.0.0.0/1 ist kein privates Netz"
+pass "broken key and internet routes stop the app with message"
 
 # 2. Client starts before the server exists (no DNS yet), then connects.
 start_client "$client_priv"

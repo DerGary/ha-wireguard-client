@@ -16,7 +16,7 @@ configuration:
     description: Endpoint from the [Peer] section, e.g. vpn.example.com:51820.
   allowed_ips:
     name: Allowed IPs
-    description: Networks routed through the tunnel, comma separated. Only the VPN network, never 0.0.0.0/0.
+    description: Networks routed through the tunnel, comma separated. Private networks only (10.x, 172.16-31.x, 192.168.x, 100.64-127.x), e.g. the VPN network.
   persistent_keepalive:
     name: Keepalive (seconds)
-    description: Keeps the connection open through NAT and routers. 25 is the recommended value, 0 turns it off.
+    description: Keeps the connection open through NAT and routers. 25 is the recommended value. Also needed to detect a lost connection.
