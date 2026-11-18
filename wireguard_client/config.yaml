@@ -10,6 +10,7 @@ arch:
 init: false
 startup: services
 host_network: true
+tmpfs: true
 privileged:
   - NET_ADMIN
 hassio_api: true
@@ -25,7 +26,7 @@ schema:
   address: "match(^[0-9.]+(/[0-9]+)?$)"
   server_public_key: "match(^[A-Za-z0-9+/]{43}=$)"
   preshared_key: password?
-  endpoint: "match(^(\\[[0-9a-fA-F:]+\\]|[^:\\s]+):[0-9]+$)"
-  allowed_ips: str
+  endpoint: "match(^([A-Za-z0-9.-]+|\\[[0-9a-fA-F:]+\\]):[0-9]+$)"
+  allowed_ips: "match(^[0-9.]+/[0-9]+( *, *[0-9.]+/[0-9]+)*$)"
   persistent_keepalive: int(0,65535)
 image: "ghcr.io/dergary/ha-wireguard-client"

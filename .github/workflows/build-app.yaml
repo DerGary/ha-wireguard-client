@@ -16,7 +16,7 @@ jobs:
     if: github.repository == 'DerGary/ha-wireguard-client'
     runs-on: ubuntu-latest
     outputs:
-      architectures: ${{ steps.info.outputs.architectures }}
+      architectures: ${{ steps.normalize.outputs.architectures }}
       build_matrix: ${{ steps.matrix.outputs.matrix }}
       image_name: ${{ steps.normalize.outputs.image_name }}
       name: ${{ steps.normalize.outputs.name }}
@@ -28,34 +28,27 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v7.0.1
 
-      - name: Get app information
-        id: info
-        uses: home-assistant/actions/helpers/info@master
-        with:
-          path: "./${{ inputs.app }}"
-
-      - name: Normalize app information
+      - name: Read app information
         id: normalize
+        env:
+          CONFIG: ./${{ inputs.app }}/config.yaml
         run: |
-          image=${{ steps.info.outputs.image }}
-          echo "image_name=${image##*/}" >> "$GITHUB_OUTPUT"
-          echo "registry_prefix=${image%/*}" >> "$GITHUB_OUTPUT"
-          version=${{ steps.info.outputs.version }}
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          name=${{ steps.info.outputs.name }}
-          echo "name=${name}" >> "$GITHUB_OUTPUT"
-          description=${{ steps.info.outputs.description }}
-          echo "description=${description}" >> "$GITHUB_OUTPUT"
-          url=${{ steps.info.outputs.url }}
-          if [[ -n "$url" && "$url" != "null" ]]; then
-            echo "url=${url}" >> "$GITHUB_OUTPUT"
-          fi
+          image=$(yq -r .image "$CONFIG")
+          {
+            echo "architectures=$(yq -o=json -I=0 .arch "$CONFIG")"
+            echo "image_name=${image##*/}"
+            echo "registry_prefix=${image%/*}"
+            echo "version=$(yq -r .version "$CONFIG")"
+            echo "name=$(yq -r .name "$CONFIG")"
+            echo "description=$(yq -r .description "$CONFIG")"
+            echo "url=$(yq -r '.url // ""' "$CONFIG")"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Prepare build matrix
         id: matrix
         uses: home-assistant/builder/actions/prepare-multi-arch-matrix@2026.09.0
         with:
-          architectures: ${{ steps.info.outputs.architectures }}
+          architectures: ${{ steps.normalize.outputs.architectures }}
           image-name: ${{ steps.normalize.outputs.image_name }}
           registry-prefix: ${{ steps.normalize.outputs.registry_prefix }}
 

@@ -9,7 +9,15 @@ if ! bashio::config 'private_key' | wg pubkey >/dev/null 2>&1; then
     bashio::exit.nok "Der Private Key ist ungültig."
 fi
 
-mkdir -p /etc/wireguard
+# 0.0.0.0/0 would send all traffic of the whole Home Assistant host through
+# the server, and cut it off from the internet whenever the tunnel is down.
+if [[ ",$(bashio::config 'allowed_ips' | tr -d ' ')," == *"/0,"* ]]; then
+    bashio::exit.nok "Erlaubte IPs darf kein /0-Netz enthalten (z. B. 0.0.0.0/0). Nur das VPN-Netz eintragen, z. B. 172.16.0.0/24."
+fi
+
+# Everything written at runtime lives on tmpfs (/tmp), so a full disk on the
+# host can not take the tunnel down.
+mkdir -p /tmp/www
 {
     echo "[Interface]"
     echo "PrivateKey = $(bashio::config 'private_key')"
@@ -23,8 +31,8 @@ mkdir -p /etc/wireguard
     echo "Endpoint = $(bashio::config 'endpoint')"
     echo "AllowedIPs = $(bashio::config 'allowed_ips')"
     echo "PersistentKeepalive = $(bashio::config 'persistent_keepalive')"
-} > /etc/wireguard/hawg0.conf
-chmod 600 /etc/wireguard/hawg0.conf
+} > /tmp/hawg0.conf
+chmod 600 /tmp/hawg0.conf
 
 # The Supervisor watchdog is off after install. Turn it on once, so it can
 # still be switched off by hand later.

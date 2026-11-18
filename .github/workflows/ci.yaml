@@ -1,0 +1,85 @@
+name: CI
+
+# Runs only on GitHub: the Gitea copy of this repo is where Renovate works,
+# GitHub tests, builds and publishes.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    if: github.server_url == 'https://github.com'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Run Home Assistant app linter
+        uses: frenck/action-addon-linter@v2.21
+        with:
+          path: "./wireguard_client"
+
+  e2e:
+    name: End-to-end test
+    if: github.server_url == 'https://github.com'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Run end-to-end test
+        run: test/e2e.sh
+
+  release:
+    name: Check for new version
+    needs: [lint, e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      publish: ${{ steps.check.outputs.publish }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7.0.1
+
+      # Publish only when config.yaml carries a version that is not on ghcr yet,
+      # so an existing tag is never overwritten.
+      - name: Compare version with registry
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          image=$(yq -r .image wireguard_client/config.yaml)
+          version=$(yq -r .version wireguard_client/config.yaml)
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          if [[ "${{ github.event_name }}" == push ]] && ! docker buildx imagetools inspect "$image:$version" >/dev/null 2>&1; then
+            echo "Publishing $image:$version"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build
+    needs: release
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    uses: ./.github/workflows/build-app.yaml
+    with:
+      app: wireguard_client
+      publish: ${{ needs.release.outputs.publish == 'true' }}
+    secrets: inherit

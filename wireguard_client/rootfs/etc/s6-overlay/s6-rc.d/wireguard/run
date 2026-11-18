@@ -5,7 +5,7 @@
 # (finish) and run this again, so every hard error ends in a fresh tunnel.
 # ==============================================================================
 
-readonly IFACE=hawg0
+readonly IFACE=hawg0 CONF=/tmp/hawg0.conf WWW=/tmp/www
 # WireGuard rekeys every 2 minutes, keepalive keeps traffic flowing,
 # so an older handshake means the server is not answering.
 readonly MAX_HANDSHAKE_AGE=180
@@ -30,9 +30,9 @@ write_status() {
     jq -n --arg state "$state" --argjson handshake "$handshake" --argjson rx "$rx" \
         --argjson tx "$tx" --arg message "$message" --argjson updated "$now" \
         '{state: $state, last_handshake: $handshake, rx: $rx, tx: $tx, message: $message, updated: $updated}' \
-        > /var/www/status.json.tmp && mv /var/www/status.json.tmp /var/www/status.json
+        > ${WWW}/status.json.tmp && mv ${WWW}/status.json.tmp ${WWW}/status.json
 
-    cat > /var/www/index.html.tmp <<HTML
+    cat > ${WWW}/index.html.tmp <<HTML
 <!DOCTYPE html>
 <html lang="de"><head><meta charset="utf-8"><meta http-equiv="refresh" content="10">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>WireGuard Client</title>
@@ -52,7 +52,7 @@ table { margin-top: 24px; border-collapse: collapse; } td { padding: 6px 16px 6p
 <tr><td>Stand</td><td>$(date '+%d.%m.%Y %H:%M:%S')</td></tr>
 </table></body></html>
 HTML
-    mv /var/www/index.html.tmp /var/www/index.html
+    mv ${WWW}/index.html.tmp ${WWW}/index.html
 
     # Same attributes every time, so Home Assistant only records real changes.
     curl -fsS -m 5 -o /dev/null -X POST \
@@ -65,9 +65,9 @@ HTML
 # A crashed run can leave the interface behind on the host network.
 ip link del "$IFACE" 2>/dev/null || true
 
-if ! wg-quick up "$IFACE"; then
+if ! wg-quick up "$CONF"; then
     bashio::log.warning "Tunnel konnte nicht gestartet werden (Internet weg oder Server-Name nicht auflösbar?). Neuer Versuch in 15 Sekunden."
-    write_status off 0 0 0 "Tunnel konnte nicht gestartet werden, neuer Versuch läuft"
+    write_status off 0 0 0 "Tunnel konnte nicht gestartet werden, neuer Versuch läuft" || true
     sleep 15
     exit 1
 fi
@@ -95,6 +95,7 @@ while true; do
         last_state=$state
     fi
 
-    write_status "$state" "$handshake" "${rx:-0}" "${tx:-0}" "$message"
+    # Status is nice to have, it must never take the tunnel down.
+    write_status "$state" "$handshake" "${rx:-0}" "${tx:-0}" "$message" || true
     sleep 15
 done

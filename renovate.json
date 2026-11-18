@@ -1,0 +1,38 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "packageRules": [
+    {
+      "description": "Everything except major updates merges itself once CI is green",
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin", "pinDigest"],
+      "automerge": true
+    },
+    {
+      "description": "Major updates always wait for a human",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    },
+    {
+      "description": "Base image and app deps ship to users, so every update is a new app release",
+      "matchFileNames": ["wireguard_client/**"],
+      "bumpVersions": [
+        {
+          "name": "app version",
+          "filePatterns": ["/^wireguard_client/config\\.yaml$/"],
+          "matchStrings": ["(?m)^version: \"(?<version>[^\"]+)\"$"],
+          "bumpType": "patch"
+        }
+      ]
+    }
+  ],
+  "customManagers": [
+    {
+      "description": "Images pinned in shell scripts, marked with a '# renovate:' comment",
+      "customType": "regex",
+      "managerFilePatterns": ["test/*.sh"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n[A-Z_]+=\\S+?:(?<currentValue>\\S+)"
+      ]
+    }
+  ]
+}
