@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.4
+
+- VPN address and allowed IPs must not overlap a local network in either direction. A larger network like `192.168.0.0/16` is refused too, it would also catch other networks behind the router.
+- Malformed networks are reported as invalid instead of "kein privates Netz".
+
 ## 1.0.3
 
 - A VPN address whose network lies in the home network is rejected, it would cut Home Assistant off from the LAN.

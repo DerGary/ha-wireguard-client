@@ -10,6 +10,11 @@ on:
         required: true
         type: boolean
 
+# Explicit bash adds pipefail to every run step.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   prepare:
     name: Prepare

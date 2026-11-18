@@ -39,11 +39,11 @@ in_private_range() {
     return 1
 }
 
-# local_conflict <a.b.c.d/prefix>: the network equals or lies inside a local
-# route, which is then in CONFLICT
+# local_conflict <a.b.c.d/prefix>: the network overlaps a local route, which
+# is then in CONFLICT
 local_conflict() {
     for CONFLICT in "${local_routes[@]}"; do
-        within "$1" "$CONFLICT" && return 0
+        if within "$1" "$CONFLICT" || within "$CONFLICT" "$1"; then return 0; fi
     done
     return 1
 }
@@ -58,36 +58,46 @@ fi
 address=$(bashio::config 'address')
 address_prefix=32
 [[ $address == */* ]] && address_prefix=${address#*/}
+if ! parse_cidr "${address%/*}/${address_prefix}"; then
+    bashio::exit.nok "Die VPN-Adresse ${address} ist ungültig."
+fi
 if ! in_private_range "${address%/*}/${address_prefix}"; then
     bashio::exit.nok "Die VPN-Adresse ${address} ist keine private Adresse (10.x, 172.16-31.x, 192.168.x, 100.64-127.x)."
 fi
 
 # Networks the host reaches directly (home LAN, Supervisor and Docker networks).
-# A tunnel route equal to or inside one of them wins over it and would cut
-# Home Assistant off from that network. Larger networks are fine, the more
-# specific local route still wins. At boot the app can start before DHCP has
-# set up the LAN, so wait for the default route first.
+# A tunnel route overlapping one of them would take over at least part of it:
+# a smaller or equal one wins by prefix, the route for the address prefix wins
+# by metric, and a larger one catches the neighbouring networks (other VLANs)
+# that the router serves. So any overlap is refused.
+# Limit: only networks with a local route are known, a routed VLAN outside
+# all of them (e.g. 10.5.0.0/24 behind a 192.168.1.0/24 LAN) is not detected.
+# At boot the app can start before DHCP has set up the LAN, so wait for the
+# default route first.
+online=false
 for _ in {1..30}; do
     routes=$(ip -4 route show) || bashio::exit.nok "Die Routen dieses Hosts konnten nicht gelesen werden."
-    grep -q '^default ' <<< "$routes" && break
+    if grep -q '^default ' <<< "$routes"; then online=true; break; fi
     sleep 2
 done
-grep -q '^default ' <<< "$routes" || bashio::log.warning "Noch keine Netzwerkverbindung, Überschneidungen mit dem Heimnetz werden nur gegen die bekannten Netze geprüft."
+$online || bashio::log.warning "Keine Standardroute nach 60 Sekunden, Überschneidungen werden nur gegen die vorhandenen Netze geprüft."
 mapfile -t local_routes < <(awk '$1 != "default" && $0 !~ / dev hawg0( |$)/ { print ($1 ~ /\//) ? $1 : $1 "/32" }' <<< "$routes")
 
-# wg-quick adds a route for the address prefix too.
 if local_conflict "${address%/*}/${address_prefix}"; then
-    bashio::exit.nok "Die VPN-Adresse ${address} liegt im lokalen Netz ${CONFLICT} dieses Home Assistant und würde es abschneiden."
+    bashio::exit.nok "Die VPN-Adresse ${address} überschneidet sich mit dem lokalen Netz ${CONFLICT} dieses Home Assistant. Die Adresse muss aus dem VPN-Netz stammen."
 fi
 
 allowed_ips=$(bashio::config 'allowed_ips' | tr -d ' ')
 IFS=, read -r -a networks <<< "$allowed_ips"
 for network in "${networks[@]}"; do
+    if ! parse_cidr "$network"; then
+        bashio::exit.nok "Erlaubte IPs: ${network} ist ungültig, Format z. B. 172.16.0.0/24."
+    fi
     if ! in_private_range "$network"; then
         bashio::exit.nok "Erlaubte IPs: ${network} ist kein privates Netz. Nur das VPN-Netz eintragen, z. B. 172.16.0.0/24, niemals 0.0.0.0/0."
     fi
     if local_conflict "$network"; then
-        bashio::exit.nok "Erlaubte IPs: ${network} liegt im lokalen Netz ${CONFLICT} dieses Home Assistant und würde es abschneiden. Nur das VPN-Netz eintragen."
+        bashio::exit.nok "Erlaubte IPs: ${network} überschneidet sich mit dem lokalen Netz ${CONFLICT} dieses Home Assistant und würde es ganz oder teilweise abschneiden. Nur das VPN-Netz eintragen."
     fi
 done
 

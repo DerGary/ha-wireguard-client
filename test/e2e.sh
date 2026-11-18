@@ -69,13 +69,16 @@ expect_stop "0.0.0.0/0 ist kein privates Netz"
 start_client "$client_priv" '.allowed_ips = "0.0.0.0/1,128.0.0.0/1"'
 expect_stop "0.0.0.0/1 ist kein privates Netz"
 start_client "$client_priv" '.allowed_ips = "10.99.0.0./24"'
-expect_stop "10.99.0.0./24 ist kein privates Netz"
+expect_stop "10.99.0.0./24 ist ungültig"
 lan=$(docker network inspect -f '{{(index .IPAM.Config 0).Subnet}}' $NET)
 start_client "$client_priv" ".allowed_ips = \"10.99.0.0/24,$lan\""
-expect_stop "$lan liegt im lokalen Netz"
-lan_address="${lan%.*}.250/${lan#*/}"
+expect_stop "$lan überschneidet sich mit dem lokalen Netz"
+lan_address="${lan%.*}.250"
 start_client "$client_priv" ".address = \"$lan_address\""
-expect_stop "VPN-Adresse $lan_address liegt im lokalen Netz"
+expect_stop "VPN-Adresse $lan_address überschneidet sich mit dem lokalen Netz"
+lan_super="${lan%/*}/$((${lan#*/} - 1))"
+start_client "$client_priv" ".allowed_ips = \"10.99.0.0/24,$lan_super\""
+expect_stop "$lan_super überschneidet sich mit dem lokalen Netz"
 pass "broken keys and networks, public address, internet and LAN routes stop the app with message"
 
 # 2. Client starts before the server exists (no DNS yet), then connects.
