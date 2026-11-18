@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 
 IMAGE=local/wireguard-client
 # renovate: datasource=docker depName=python
-MOCK_IMAGE=python:3.13-alpine
+MOCK_IMAGE=python:3.15-alpine
 NET=wgtest
 DATA=$(mktemp -d)
 trap 'docker rm -f wgclient wgserver ipblock supervisor >/dev/null 2>&1; docker network rm $NET >/dev/null 2>&1; docker run --rm --entrypoint rm -v "$DATA:/data" $IMAGE -rf /data/posted; rm -rf "$DATA"' EXIT
