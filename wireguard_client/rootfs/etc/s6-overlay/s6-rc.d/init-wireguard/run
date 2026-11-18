@@ -1,0 +1,36 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# Validate the options and write the WireGuard config.
+# A failure here stops the app, so a broken config shows up in the log at once.
+# ==============================================================================
+
+if ! bashio::config 'private_key' | wg pubkey >/dev/null 2>&1; then
+    bashio::exit.nok "Der Private Key ist ungültig."
+fi
+
+mkdir -p /etc/wireguard
+{
+    echo "[Interface]"
+    echo "PrivateKey = $(bashio::config 'private_key')"
+    echo "Address = $(bashio::config 'address')"
+    echo
+    echo "[Peer]"
+    echo "PublicKey = $(bashio::config 'server_public_key')"
+    if bashio::config.has_value 'preshared_key'; then
+        echo "PresharedKey = $(bashio::config 'preshared_key')"
+    fi
+    echo "Endpoint = $(bashio::config 'endpoint')"
+    echo "AllowedIPs = $(bashio::config 'allowed_ips')"
+    echo "PersistentKeepalive = $(bashio::config 'persistent_keepalive')"
+} > /etc/wireguard/hawg0.conf
+chmod 600 /etc/wireguard/hawg0.conf
+
+# The Supervisor watchdog is off after install. Turn it on once, so it can
+# still be switched off by hand later.
+if ! bashio::fs.file_exists /data/watchdog-enabled; then
+    if bashio::api.supervisor POST /addons/self/options '{"watchdog": true}' >/dev/null; then
+        touch /data/watchdog-enabled
+        bashio::log.info "Watchdog eingeschaltet."
+    fi
+fi

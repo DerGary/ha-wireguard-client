@@ -1,0 +1,22 @@
+configuration:
+  private_key:
+    name: Private Key
+    description: Privater Schlüssel dieses Clients (PrivateKey aus dem [Interface]-Block der Client-Konfiguration).
+  address:
+    name: VPN-Adresse
+    description: Adresse dieses Clients im VPN, z. B. 172.16.0.11 (Address aus dem [Interface]-Block).
+  server_public_key:
+    name: Public Key des Servers
+    description: PublicKey aus dem [Peer]-Block der Client-Konfiguration.
+  preshared_key:
+    name: Preshared Key
+    description: PresharedKey aus dem [Peer]-Block, falls vorhanden.
+  endpoint:
+    name: Server-Adresse
+    description: Endpoint aus dem [Peer]-Block, z. B. vpn.example.com:51820.
+  allowed_ips:
+    name: Erlaubte IPs
+    description: Netze, die durch den Tunnel gehen, mit Komma getrennt. Nur das VPN-Netz eintragen, nicht 0.0.0.0/0.
+  persistent_keepalive:
+    name: Keepalive (Sekunden)
+    description: Hält die Verbindung durch NAT und Router offen. 25 ist der empfohlene Wert, 0 schaltet es aus.

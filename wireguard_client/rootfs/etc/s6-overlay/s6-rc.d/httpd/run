@@ -1,0 +1,4 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+# Status page for ingress. Only the Supervisor may connect (/etc/httpd.conf).
+exec httpd -f -p 61820 -h /var/www -c /etc/httpd.conf

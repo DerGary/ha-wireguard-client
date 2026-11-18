@@ -1,0 +1,4 @@
+# https://contributors.home-assistant.io/apps/guides/repository/
+name: WireGuard Client
+url: "https://github.com/DerGary/ha-wireguard-client"
+maintainer: DerGary

@@ -1,0 +1,100 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# Bring the tunnel up and watch it. Exiting makes s6 tear the tunnel down
+# (finish) and run this again, so every hard error ends in a fresh tunnel.
+# ==============================================================================
+
+readonly IFACE=hawg0
+# WireGuard rekeys every 2 minutes, keepalive keeps traffic flowing,
+# so an older handshake means the server is not answering.
+readonly MAX_HANDSHAKE_AGE=180
+
+endpoint=$(bashio::config 'endpoint')
+server_key=$(bashio::config 'server_public_key')
+address=$(bashio::config 'address')
+
+human() {
+    awk -v b="$1" 'BEGIN { split("B KiB MiB GiB TiB", u); i = 1
+        while (b >= 1024 && i < 5) { b /= 1024; i++ }
+        printf (i == 1 ? "%d %s" : "%.1f %s"), b, u[i] }'
+}
+
+# write_status <on|off> <handshake epoch> <rx bytes> <tx bytes> <message>
+write_status() {
+    local state=$1 handshake=$2 rx=$3 tx=$4 message=$5 now age text color
+    now=$(date +%s)
+    if ((handshake > 0)); then age="vor $((now - handshake)) Sekunden"; else age="noch nie"; fi
+    if [[ $state == on ]]; then text="Verbunden"; color="#2e7d32"; else text="Nicht verbunden"; color="#c62828"; fi
+
+    jq -n --arg state "$state" --argjson handshake "$handshake" --argjson rx "$rx" \
+        --argjson tx "$tx" --arg message "$message" --argjson updated "$now" \
+        '{state: $state, last_handshake: $handshake, rx: $rx, tx: $tx, message: $message, updated: $updated}' \
+        > /var/www/status.json.tmp && mv /var/www/status.json.tmp /var/www/status.json
+
+    cat > /var/www/index.html.tmp <<HTML
+<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8"><meta http-equiv="refresh" content="10">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>WireGuard Client</title>
+<style>
+body { font-family: sans-serif; margin: 24px; color: #222; background: #fff; }
+.state { font-size: 2em; font-weight: bold; color: #fff; background: ${color}; padding: 16px 24px; border-radius: 8px; display: inline-block; }
+table { margin-top: 24px; border-collapse: collapse; } td { padding: 6px 16px 6px 0; } td:first-child { color: #666; }
+@media (prefers-color-scheme: dark) { body { color: #eee; background: #111; } td:first-child { color: #aaa; } }
+</style></head><body>
+<div class="state">${text}</div>
+<table>
+<tr><td>Letzter Kontakt zum Server</td><td>${age}</td></tr>
+<tr><td>Server</td><td>${endpoint}</td></tr>
+<tr><td>Eigene VPN-Adresse</td><td>${address}</td></tr>
+<tr><td>Empfangen / Gesendet</td><td>$(human "$rx") / $(human "$tx")</td></tr>
+<tr><td>Hinweis</td><td>${message:--}</td></tr>
+<tr><td>Stand</td><td>$(date '+%d.%m.%Y %H:%M:%S')</td></tr>
+</table></body></html>
+HTML
+    mv /var/www/index.html.tmp /var/www/index.html
+
+    # Same attributes every time, so Home Assistant only records real changes.
+    curl -fsS -m 5 -o /dev/null -X POST \
+        -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" -H "Content-Type: application/json" \
+        -d "$(jq -n --arg state "$state" --arg endpoint "$endpoint" --arg address "$address" \
+            '{state: $state, attributes: {friendly_name: "WireGuard Client", device_class: "connectivity", endpoint: $endpoint, address: $address}}')" \
+        http://supervisor/core/api/states/binary_sensor.wireguard_client 2>/dev/null || true
+}
+
+# A crashed run can leave the interface behind on the host network.
+ip link del "$IFACE" 2>/dev/null || true
+
+if ! wg-quick up "$IFACE"; then
+    bashio::log.warning "Tunnel konnte nicht gestartet werden (Internet weg oder Server-Name nicht auflösbar?). Neuer Versuch in 15 Sekunden."
+    write_status off 0 0 0 "Tunnel konnte nicht gestartet werden, neuer Versuch läuft"
+    sleep 15
+    exit 1
+fi
+
+last_state=""
+while true; do
+    if ! handshake=$(wg show "$IFACE" latest-handshakes | awk '{ print $2 }'); then
+        bashio::log.warning "Tunnel-Interface ist verschwunden, starte neu."
+        exit 1
+    fi
+    read -r rx tx < <(wg show "$IFACE" transfer | awk '{ print $2, $3 }')
+
+    message=""
+    if ((handshake > 0 && $(date +%s) - handshake < MAX_HANDSHAKE_AGE)); then
+        state=on
+    else
+        state=off
+        message="Server antwortet nicht, Verbindung wird weiter versucht"
+        # Resolve the server name again, its IP might have changed.
+        wg set "$IFACE" peer "$server_key" endpoint "$endpoint" 2>/dev/null || true
+    fi
+
+    if [[ $state != "$last_state" ]]; then
+        if [[ $state == on ]]; then bashio::log.info "Verbunden mit ${endpoint}."; else bashio::log.warning "Keine Verbindung zu ${endpoint}."; fi
+        last_state=$state
+    fi
+
+    write_status "$state" "$handshake" "${rx:-0}" "${tx:-0}" "$message"
+    sleep 15
+done

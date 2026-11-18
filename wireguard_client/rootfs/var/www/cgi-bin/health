@@ -1,0 +1,8 @@
+#!/bin/sh
+# Docker HEALTHCHECK: healthy while the monitor loop keeps writing its status.
+# The tunnel state itself does not matter here, a restart would not fix a server outage.
+if [ -f /var/www/status.json ] && [ $(($(date +%s) - $(stat -c %Y /var/www/status.json))) -lt 120 ]; then
+    printf 'Content-Type: text/plain\r\n\r\nok\n'
+else
+    printf 'Status: 503 Service Unavailable\r\nContent-Type: text/plain\r\n\r\nstale\n'
+fi
