@@ -9,10 +9,9 @@
 # parse_cidr <a.b.c.d/prefix>: sets NET (integer) and PREFIX, fails on invalid input
 parse_cidr() {
     local IFS=. octets octet
-    [[ $1 =~ ^([0-9.]+)/([0-9]{1,2})$ ]] && ((10#${BASH_REMATCH[2]} <= 32)) || return 1
-    PREFIX=$((10#${BASH_REMATCH[2]})) NET=0
+    [[ $1 =~ ^([0-9]{1,3}(\.[0-9]{1,3}){3})/([0-9]{1,2})$ ]] && ((10#${BASH_REMATCH[3]} <= 32)) || return 1
+    PREFIX=$((10#${BASH_REMATCH[3]})) NET=0
     read -r -a octets <<< "${BASH_REMATCH[1]}"
-    ((${#octets[@]} == 4)) || return 1
     for octet in "${octets[@]}"; do
         [[ $octet =~ ^(0|[1-9][0-9]{0,2})$ ]] && ((octet <= 255)) || return 1
         NET=$(((NET << 8) | octet))
@@ -40,6 +39,15 @@ in_private_range() {
     return 1
 }
 
+# local_conflict <a.b.c.d/prefix>: the network equals or lies inside a local
+# route, which is then in CONFLICT
+local_conflict() {
+    for CONFLICT in "${local_routes[@]}"; do
+        within "$1" "$CONFLICT" && return 0
+    done
+    return 1
+}
+
 if ! bashio::config 'private_key' | wg pubkey >/dev/null 2>&1; then
     bashio::exit.nok "Der Private Key ist ungültig."
 fi
@@ -57,8 +65,20 @@ fi
 # Networks the host reaches directly (home LAN, Supervisor and Docker networks).
 # A tunnel route equal to or inside one of them wins over it and would cut
 # Home Assistant off from that network. Larger networks are fine, the more
-# specific local route still wins.
-mapfile -t local_routes < <(ip -4 route show | awk '$1 != "default" && $0 !~ / dev hawg0( |$)/ { print ($1 ~ /\//) ? $1 : $1 "/32" }')
+# specific local route still wins. At boot the app can start before DHCP has
+# set up the LAN, so wait for the default route first.
+for _ in {1..30}; do
+    routes=$(ip -4 route show) || bashio::exit.nok "Die Routen dieses Hosts konnten nicht gelesen werden."
+    grep -q '^default ' <<< "$routes" && break
+    sleep 2
+done
+grep -q '^default ' <<< "$routes" || bashio::log.warning "Noch keine Netzwerkverbindung, Überschneidungen mit dem Heimnetz werden nur gegen die bekannten Netze geprüft."
+mapfile -t local_routes < <(awk '$1 != "default" && $0 !~ / dev hawg0( |$)/ { print ($1 ~ /\//) ? $1 : $1 "/32" }' <<< "$routes")
+
+# wg-quick adds a route for the address prefix too.
+if local_conflict "${address%/*}/${address_prefix}"; then
+    bashio::exit.nok "Die VPN-Adresse ${address} liegt im lokalen Netz ${CONFLICT} dieses Home Assistant und würde es abschneiden."
+fi
 
 allowed_ips=$(bashio::config 'allowed_ips' | tr -d ' ')
 IFS=, read -r -a networks <<< "$allowed_ips"
@@ -66,11 +86,9 @@ for network in "${networks[@]}"; do
     if ! in_private_range "$network"; then
         bashio::exit.nok "Erlaubte IPs: ${network} ist kein privates Netz. Nur das VPN-Netz eintragen, z. B. 172.16.0.0/24, niemals 0.0.0.0/0."
     fi
-    for route in "${local_routes[@]}"; do
-        if within "$network" "$route"; then
-            bashio::exit.nok "Erlaubte IPs: ${network} liegt im lokalen Netz ${route} dieses Home Assistant und würde es abschneiden. Nur das VPN-Netz eintragen."
-        fi
-    done
+    if local_conflict "$network"; then
+        bashio::exit.nok "Erlaubte IPs: ${network} liegt im lokalen Netz ${CONFLICT} dieses Home Assistant und würde es abschneiden. Nur das VPN-Netz eintragen."
+    fi
 done
 
 # Everything written at runtime lives on tmpfs (/tmp), so a full disk on the

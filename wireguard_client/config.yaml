@@ -1,6 +1,6 @@
 # https://contributors.home-assistant.io/apps/reference/configuration/
 name: WireGuard Client
-version: "1.0.2"
+version: "1.0.3"
 slug: wireguard_client
 description: Keeps this Home Assistant connected to a WireGuard server
 url: "https://github.com/DerGary/ha-wireguard-client"
@@ -28,5 +28,5 @@ schema:
   preshared_key: password?
   endpoint: "match(^([A-Za-z0-9.-]+|\\[[0-9a-fA-F:]+\\]):[0-9]+$)"
   allowed_ips: "match(^[0-9.]+/[0-9]+( *, *[0-9.]+/[0-9]+)*$)"
-  persistent_keepalive: int(1,65535)
+  persistent_keepalive: int(1,120)
 image: "ghcr.io/dergary/ha-wireguard-client"

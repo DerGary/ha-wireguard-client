@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.3
+
+- A VPN address whose network lies in the home network is rejected, it would cut Home Assistant off from the LAN.
+- Malformed networks like `10.99.0.0./24` stop the app with a message instead of restarting it every 15 seconds.
+- At boot the network check waits up to 60 seconds for the LAN to come up.
+- Keepalive is limited to 1 to 120 seconds, so a lost connection is detected within about 5 minutes.
+
 ## 1.0.2
 
 - Allowed IPs inside the home network (or another network of the host) are rejected, they would cut Home Assistant off from it.

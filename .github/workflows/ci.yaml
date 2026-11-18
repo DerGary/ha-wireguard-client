@@ -19,6 +19,11 @@ on:
 permissions:
   contents: read
 
+# Explicit bash adds pipefail to every run step.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   lint:
     name: Lint

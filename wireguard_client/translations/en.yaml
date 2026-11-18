@@ -4,7 +4,7 @@ configuration:
     description: Private key of this client (PrivateKey from the [Interface] section of the client config).
   address:
     name: VPN address
-    description: Address of this client inside the VPN, e.g. 172.16.0.11 (Address from the [Interface] section). Private addresses only.
+    description: Address of this client inside the VPN, e.g. 172.16.0.11 (Address from the [Interface] section). Private addresses outside the home network only.
   server_public_key:
     name: Server public key
     description: PublicKey from the [Peer] section of the client config.
@@ -19,4 +19,4 @@ configuration:
     description: Networks routed through the tunnel, comma separated. Private networks only (10.x, 172.16-31.x, 192.168.x, 100.64-127.x) outside the home network, e.g. the VPN network.
   persistent_keepalive:
     name: Keepalive (seconds)
-    description: Keeps the connection open through NAT and routers. 25 is the recommended value. Also needed to detect a lost connection.
+    description: Keeps the connection open through NAT and routers. 25 is the recommended value, 1 to 120 are allowed. Also needed to detect a lost connection.

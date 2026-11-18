@@ -18,8 +18,8 @@ Verbindet dieses Home Assistant dauerhaft mit einem WireGuard-Server.
 
    `DNS` aus der .conf wird absichtlich nicht übernommen. VPN-Adresse und
    erlaubte IPs müssen private Netze sein: Mit `0.0.0.0/0` ginge sonst der ganze
-   Internetverkehr von Home Assistant über den Server. Erlaubte IPs, die im
-   eigenen Heimnetz liegen, lehnt die App ebenfalls ab, weil Home Assistant
+   Internetverkehr von Home Assistant über den Server. Eine VPN-Adresse oder
+   erlaubte IPs im eigenen Heimnetz lehnt die App ebenfalls ab, weil Home Assistant
    sonst im Heimnetz nicht mehr erreichbar wäre.
 3. Speichern und die App starten.
 

@@ -19,8 +19,9 @@ See [DOCS.md](wireguard_client/DOCS.md) for setup.
   keeps dependencies current. A push mirror copies every branch to GitHub.
 - On GitHub, CI runs the app linter, MegaLinter (`.mega-linter.yml`), the
   end-to-end test and the multi-arch build for `main` and every `renovate/*`
-  branch and reports the result back to Gitea as commit status `github-ci`. Gitea requires that status before a pull request can merge, so
-  Renovate only automerges tested updates (never majors). Every update under
+  branch and reports the result back to Gitea as commit status `github-ci`.
+  Gitea requires that status before a pull request can merge, so Renovate
+  only automerges tested updates (never majors). Every update under
   `wireguard_client/` bumps the app version.
 - When `main` carries a version that is not on ghcr yet, CI builds and
   publishes `ghcr.io/dergary/ha-wireguard-client` for amd64 and aarch64.

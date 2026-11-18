@@ -53,7 +53,7 @@ start_client() {
 expect_stop() {
     wait_for 30 sh -c '[ "$(docker inspect -f {{.State.Running}} wgclient)" = false ]' || fail "app did not stop"
     [ "$(docker inspect -f '{{.State.ExitCode}}' wgclient)" != 0 ] || fail "app exited with 0"
-    docker logs wgclient 2>&1 | grep -q "$1" || fail "message not logged: $1"
+    docker logs wgclient 2>&1 | grep "$1" >/dev/null || fail "message not logged: $1"
     docker rm -f wgclient >/dev/null
 }
 
@@ -68,10 +68,15 @@ start_client "$client_priv" '.allowed_ips = "10.99.0.0/24, 0.0.0.0/0"'
 expect_stop "0.0.0.0/0 ist kein privates Netz"
 start_client "$client_priv" '.allowed_ips = "0.0.0.0/1,128.0.0.0/1"'
 expect_stop "0.0.0.0/1 ist kein privates Netz"
+start_client "$client_priv" '.allowed_ips = "10.99.0.0./24"'
+expect_stop "10.99.0.0./24 ist kein privates Netz"
 lan=$(docker network inspect -f '{{(index .IPAM.Config 0).Subnet}}' $NET)
 start_client "$client_priv" ".allowed_ips = \"10.99.0.0/24,$lan\""
 expect_stop "$lan liegt im lokalen Netz"
-pass "broken keys, public address, internet and LAN routes stop the app with message"
+lan_address="${lan%.*}.250/${lan#*/}"
+start_client "$client_priv" ".address = \"$lan_address\""
+expect_stop "VPN-Adresse $lan_address liegt im lokalen Netz"
+pass "broken keys and networks, public address, internet and LAN routes stop the app with message"
 
 # 2. Client starts before the server exists (no DNS yet), then connects.
 start_client "$client_priv"
@@ -89,8 +94,8 @@ docker exec wgserver ping -c1 -W2 10.99.0.2 >/dev/null || fail "server cannot re
 pass "traffic both ways"
 
 # 4. Status page and health: Supervisor/localhost only.
-docker exec wgclient curl -fsS http://127.0.0.1:61820/ | grep -q Verbunden || fail "status page"
-docker exec wgclient curl -fsS http://127.0.0.1:61820/cgi-bin/health | grep -q ok || fail "health"
+docker exec wgclient curl -fsS http://127.0.0.1:61820/ | grep Verbunden >/dev/null || fail "status page"
+docker exec wgclient curl -fsS http://127.0.0.1:61820/cgi-bin/health | grep ok >/dev/null || fail "health"
 code=$(docker exec wgserver curl -s -o /dev/null -w '%{http_code}' http://wgclient:61820/ || true)
 [ "$code" = 403 ] || fail "status page reachable from other hosts: $code"
 wait_for 120 sh -c '[ "$(docker inspect -f {{.State.Health.Status}} wgclient)" = healthy ]' || fail "docker healthcheck not healthy"
@@ -115,7 +120,7 @@ pass "failing status writes keep the tunnel"
 old_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' wgserver)
 docker rm -f wgserver >/dev/null
 wait_for 300 sh -c '[ "$(docker exec wgclient jq -r .state /tmp/www/status.json)" = off ]' || fail "outage not detected"
-docker exec wgclient curl -fsS http://127.0.0.1:61820/cgi-bin/health | grep -q ok || fail "health must stay ok during outage"
+docker exec wgclient curl -fsS http://127.0.0.1:61820/cgi-bin/health | grep ok >/dev/null || fail "health must stay ok during outage"
 [ "$(sensor)" = off ] || fail "sensor not off during outage"
 pass "outage detected, sensor off, health stays ok"
 docker run -d --name ipblock --network $NET --entrypoint sleep $IMAGE 600 >/dev/null # takes the old IP
