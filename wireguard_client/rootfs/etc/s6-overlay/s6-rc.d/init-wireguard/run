@@ -6,29 +6,36 @@
 # instead of ending in an endless reconnect loop.
 # ==============================================================================
 
-# ip_to_int <a.b.c.d>: prints the address as integer, fails on invalid input
-ip_to_int() {
-    local IFS=. a b c d
-    read -r a b c d <<< "$1"
-    for octet in "$a" "$b" "$c" "$d"; do
-        [[ $octet =~ ^(0|[1-9][0-9]{0,2})$ ]] && ((10#$octet <= 255)) || return 1
+# parse_cidr <a.b.c.d/prefix>: sets NET (integer) and PREFIX, fails on invalid input
+parse_cidr() {
+    local IFS=. octets octet
+    [[ $1 =~ ^([0-9.]+)/([0-9]{1,2})$ ]] && ((10#${BASH_REMATCH[2]} <= 32)) || return 1
+    PREFIX=$((10#${BASH_REMATCH[2]})) NET=0
+    read -r -a octets <<< "${BASH_REMATCH[1]}"
+    ((${#octets[@]} == 4)) || return 1
+    for octet in "${octets[@]}"; do
+        [[ $octet =~ ^(0|[1-9][0-9]{0,2})$ ]] && ((octet <= 255)) || return 1
+        NET=$(((NET << 8) | octet))
     done
-    echo $(((10#$a << 24) | (10#$b << 16) | (10#$c << 8) | 10#$d))
+}
+
+# within <a.b.c.d/p> <a.b.c.d/q>: the first network lies inside the second
+within() {
+    local rnet rprefix mask
+    parse_cidr "$2" || return 1
+    rnet=$NET rprefix=$PREFIX
+    parse_cidr "$1" || return 1
+    mask=$(((0xFFFFFFFF << (32 - rprefix)) & 0xFFFFFFFF))
+    ((PREFIX >= rprefix && (NET & mask) == (rnet & mask)))
 }
 
 # in_private_range <a.b.c.d/prefix>: the network lies inside a private range.
 # Anything else, 0.0.0.0/0 and its halves included, would route internet
 # traffic of the whole Home Assistant host through the server.
 in_private_range() {
-    local net=${1%/*} prefix=${1#*/} ip range rnet rprefix mask
-    [[ $1 == */* && $prefix =~ ^[0-9]{1,2}$ ]] && ((10#$prefix <= 32)) || return 1
-    ip=$(ip_to_int "$net") || return 1
+    local range
     for range in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10; do
-        rnet=$(ip_to_int "${range%/*}") rprefix=${range#*/}
-        mask=$(((0xFFFFFFFF << (32 - rprefix)) & 0xFFFFFFFF))
-        if ((10#$prefix >= rprefix && (ip & mask) == rnet)); then
-            return 0
-        fi
+        within "$1" "$range" && return 0
     done
     return 1
 }
@@ -44,8 +51,14 @@ address=$(bashio::config 'address')
 address_prefix=32
 [[ $address == */* ]] && address_prefix=${address#*/}
 if ! in_private_range "${address%/*}/${address_prefix}"; then
-    bashio::exit.nok "Die VPN-Adresse ${address} ist ungültig."
+    bashio::exit.nok "Die VPN-Adresse ${address} ist keine private Adresse (10.x, 172.16-31.x, 192.168.x, 100.64-127.x)."
 fi
+
+# Networks the host reaches directly (home LAN, Supervisor and Docker networks).
+# A tunnel route equal to or inside one of them wins over it and would cut
+# Home Assistant off from that network. Larger networks are fine, the more
+# specific local route still wins.
+mapfile -t local_routes < <(ip -4 route show | awk '$1 != "default" && $0 !~ / dev hawg0( |$)/ { print ($1 ~ /\//) ? $1 : $1 "/32" }')
 
 allowed_ips=$(bashio::config 'allowed_ips' | tr -d ' ')
 IFS=, read -r -a networks <<< "$allowed_ips"
@@ -53,6 +66,11 @@ for network in "${networks[@]}"; do
     if ! in_private_range "$network"; then
         bashio::exit.nok "Erlaubte IPs: ${network} ist kein privates Netz. Nur das VPN-Netz eintragen, z. B. 172.16.0.0/24, niemals 0.0.0.0/0."
     fi
+    for route in "${local_routes[@]}"; do
+        if within "$network" "$route"; then
+            bashio::exit.nok "Erlaubte IPs: ${network} liegt im lokalen Netz ${route} dieses Home Assistant und würde es abschneiden. Nur das VPN-Netz eintragen."
+        fi
+    done
 done
 
 # Everything written at runtime lives on tmpfs (/tmp), so a full disk on the

@@ -3,6 +3,8 @@
 # Needs Docker and a kernel with WireGuard. Takes about 8 minutes because the
 # outage detection runs on real WireGuard timings.
 # Usage: test/e2e.sh
+# The sh -c strings are expanded inside the container on purpose.
+# shellcheck disable=SC2016
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -38,11 +40,11 @@ start_server() {
         ip link set wg0 up && exec sleep infinity" >/dev/null
 }
 
-# start_client <private key> [allowed ips]
+# start_client <private key> [jq filter to change the options]
 start_client() {
-    jq -n --arg k "$1" --arg s "$server_pub" --arg p "$psk" --arg a "${2:-10.99.0.0/24}" \
+    jq -n --arg k "$1" --arg s "$server_pub" --arg p "$psk" \
         '{private_key: $k, address: "10.99.0.2", server_public_key: $s, preshared_key: $p,
-          endpoint: "wgserver:51820", allowed_ips: $a, persistent_keepalive: 25}' > "$DATA/options.json"
+          endpoint: "wgserver:51820", allowed_ips: "10.99.0.0/24", persistent_keepalive: 25} | '"${2:-.}" > "$DATA/options.json"
     # --tmpfs /tmp: the Supervisor does the same for "tmpfs: true"
     docker run -d --name wgclient --network $NET --cap-add NET_ADMIN --tmpfs /tmp -e SUPERVISOR_TOKEN=test -v "$DATA:/data" $IMAGE >/dev/null
 }
@@ -58,11 +60,18 @@ expect_stop() {
 # 1. Broken config stops the app with an error.
 start_client "not-a-key"
 expect_stop "Private Key ist ungültig"
-start_client "$client_priv" "10.99.0.0/24, 0.0.0.0/0"
+start_client "$client_priv" '.preshared_key = "not-a-key"'
+expect_stop "Preshared Key ist ungültig"
+start_client "$client_priv" '.address = "203.0.113.5"'
+expect_stop "203.0.113.5 ist keine private Adresse"
+start_client "$client_priv" '.allowed_ips = "10.99.0.0/24, 0.0.0.0/0"'
 expect_stop "0.0.0.0/0 ist kein privates Netz"
-start_client "$client_priv" "0.0.0.0/1,128.0.0.0/1"
+start_client "$client_priv" '.allowed_ips = "0.0.0.0/1,128.0.0.0/1"'
 expect_stop "0.0.0.0/1 ist kein privates Netz"
-pass "broken key and internet routes stop the app with message"
+lan=$(docker network inspect -f '{{(index .IPAM.Config 0).Subnet}}' $NET)
+start_client "$client_priv" ".allowed_ips = \"10.99.0.0/24,$lan\""
+expect_stop "$lan liegt im lokalen Netz"
+pass "broken keys, public address, internet and LAN routes stop the app with message"
 
 # 2. Client starts before the server exists (no DNS yet), then connects.
 start_client "$client_priv"
@@ -71,7 +80,7 @@ sleep 20
 start_server
 wait_for 60 sh -c '[ "$(docker exec wgclient jq -r .state /tmp/www/status.json)" = on ]' || fail "did not connect"
 [ "$(sensor)" = on ] || fail "sensor not on: $(sensor)"
-[ -f "$DATA/posted/addons_self_options" ] && jq -e '.watchdog == true' "$DATA/posted/addons_self_options" >/dev/null || fail "watchdog not enabled"
+jq -e '.watchdog == true' "$DATA/posted/addons_self_options" >/dev/null 2>&1 || fail "watchdog not enabled"
 pass "connects after server shows up late, sensor on, watchdog enabled"
 
 # 3. Traffic both ways, server to client is what Traefik uses.
@@ -105,7 +114,7 @@ pass "failing status writes keep the tunnel"
 # 7. Server outage is detected, server comes back with a new IP, client re-resolves.
 old_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' wgserver)
 docker rm -f wgserver >/dev/null
-wait_for 240 sh -c '[ "$(docker exec wgclient jq -r .state /tmp/www/status.json)" = off ]' || fail "outage not detected"
+wait_for 300 sh -c '[ "$(docker exec wgclient jq -r .state /tmp/www/status.json)" = off ]' || fail "outage not detected"
 docker exec wgclient curl -fsS http://127.0.0.1:61820/cgi-bin/health | grep -q ok || fail "health must stay ok during outage"
 [ "$(sensor)" = off ] || fail "sensor not off during outage"
 pass "outage detected, sensor off, health stays ok"

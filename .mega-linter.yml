@@ -1,0 +1,21 @@
+# https://megalinter.io/latest/config-file/
+# Explicit list: a MegaLinter update that brings new linters must not turn
+# Renovate PRs red by itself.
+ENABLE_LINTERS:
+  - ACTION_ACTIONLINT
+  - ACTION_ZIZMOR
+  - BASH_SHELLCHECK
+  - DOCKERFILE_HADOLINT
+  - JSON_JSONLINT
+  - MARKDOWN_MARKDOWNLINT
+  - PYTHON_RUFF
+  - REPOSITORY_BETTERLEAKS
+  - REPOSITORY_SECRETLINT
+  - REPOSITORY_TRIVY
+  - YAML_YAMLLINT
+APPLY_FIXES: none
+SHOW_ELAPSED_TIME: true
+FILEIO_REPORTER: false
+# Also lint extensionless scripts with a sh/bash shebang. The s6 scripts
+# (bashio shebang) are not detected, the lint job checks them.
+BASH_SHELLCHECK_FILE_EXTENSIONS: [".sh", ""]

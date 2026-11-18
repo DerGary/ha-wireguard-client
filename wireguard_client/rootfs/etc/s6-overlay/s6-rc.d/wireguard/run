@@ -6,9 +6,11 @@
 # ==============================================================================
 
 readonly IFACE=hawg0 CONF=/tmp/hawg0.conf WWW=/tmp/www
-# WireGuard rekeys every 2 minutes, keepalive keeps traffic flowing,
-# so an older handshake means the server is not answering.
-readonly MAX_HANDSHAKE_AGE=180
+# WireGuard session keys expire after 180 seconds, the next keepalive at the
+# latest starts a new handshake. 15 seconds slack for the handshake and this
+# loop, so an older handshake means the server is not answering.
+MAX_HANDSHAKE_AGE=$((180 + $(bashio::config 'persistent_keepalive') + 15))
+readonly MAX_HANDSHAKE_AGE
 # wg retries a failing DNS lookup on its own for minutes, which would stall
 # this loop. Fail fast instead, the loop retries every 15 seconds anyway.
 export WG_ENDPOINT_RESOLUTION_RETRIES=0

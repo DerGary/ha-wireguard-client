@@ -16,9 +16,11 @@ Verbindet dieses Home Assistant dauerhaft mit einem WireGuard-Server.
    | Server-Adresse | `[Peer]` → `Endpoint` |
    | Erlaubte IPs | nur das VPN-Netz, z. B. `172.16.0.0/24` |
 
-   `DNS` aus der .conf wird absichtlich nicht übernommen. Bei den erlaubten IPs
-   nimmt die App nur private Netze an: Mit `0.0.0.0/0` ginge sonst der ganze
-   Internetverkehr von Home Assistant über den Server.
+   `DNS` aus der .conf wird absichtlich nicht übernommen. VPN-Adresse und
+   erlaubte IPs müssen private Netze sein: Mit `0.0.0.0/0` ginge sonst der ganze
+   Internetverkehr von Home Assistant über den Server. Erlaubte IPs, die im
+   eigenen Heimnetz liegen, lehnt die App ebenfalls ab, weil Home Assistant
+   sonst im Heimnetz nicht mehr erreichbar wäre.
 3. Speichern und die App starten.
 
 Die App startet danach bei jedem Neustart von selbst. Der Watchdog wird beim
@@ -39,7 +41,8 @@ versucht es von selbst weiter, ein Neustart ist nicht nötig.
 ## Technisches
 
 - Interface `hawg0` im Host-Netz, Kernel-WireGuard.
-- Verbindung gilt als getrennt, wenn der letzte Handshake älter als 180 Sekunden ist.
+- Verbindung gilt als getrennt, wenn der letzte Handshake älter als 195 Sekunden
+  plus Keepalive ist (220 Sekunden bei Keepalive 25).
   Dann wird der Server-Name alle 15 Sekunden neu aufgelöst.
 - Verschwindet das Interface, wird der Tunnel neu aufgebaut.
 - Docker-Healthcheck schlägt fehl, wenn die Überwachung hängt; der Supervisor startet die App dann neu.

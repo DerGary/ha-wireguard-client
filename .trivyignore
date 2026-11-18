@@ -1,0 +1,3 @@
+# Home Assistant apps run as root: s6-overlay needs it, and the tunnel needs
+# NET_ADMIN on the host network.
+AVD-DS-0002

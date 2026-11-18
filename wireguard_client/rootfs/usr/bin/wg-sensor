@@ -1,8 +1,9 @@
 #!/bin/sh
 # wg-sensor <on|off>: set binary_sensor.wireguard_client in Home Assistant.
 # The attributes never change while the app runs, so Home Assistant only
-# records real state changes.
+# records real state changes. Short timeout: the finish script runs it and
+# s6 kills finish scripts after 5 seconds.
 jq -c --arg state "$1" '{state: $state, attributes: .}' /tmp/sensor-attributes.json |
-    curl -fsS -m 5 -o /dev/null -X POST \
+    curl -fsS -m 3 -o /dev/null -X POST \
         -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" -H "Content-Type: application/json" -d @- \
         http://supervisor/core/api/states/binary_sensor.wireguard_client 2>/dev/null

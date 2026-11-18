@@ -1,8 +1,9 @@
 name: CI
 
 # Runs only on GitHub. The main repo is on Gitea, where Renovate works, and a
-# push mirror copies every branch here. GitHub tests, reports the result back
-# to Gitea (commit status "github-ci", required to merge), builds and publishes.
+# push mirror copies every branch here. GitHub tests and builds, reports the
+# result back to Gitea (commit status "github-ci", required to merge) and
+# publishes new versions from main.
 on:
   push:
     branches:
@@ -25,12 +26,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run shellcheck on the s6 scripts
+        run: shellcheck wireguard_client/rootfs/etc/s6-overlay/s6-rc.d/*/{run,finish}
 
       - name: Run Home Assistant app linter
-        uses: frenck/action-addon-linter@v2.21
+        uses: frenck/action-addon-linter@d51677290aef26cdfc835271dd3c7343ce502809 # v2.21
         with:
           path: "./wireguard_client"
+
+  megalinter:
+    name: MegaLinter
+    if: github.server_url == 'https://github.com'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Linters are listed in .mega-linter.yml
+      - name: Run MegaLinter
+        uses: oxsecurity/megalinter/flavors/python@f2fe8c1cba37091848df3e524066c8c23ef353ed # v10.2.0
+        env:
+          VALIDATE_ALL_CODEBASE: true
 
   e2e:
     name: End-to-end test
@@ -38,31 +60,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Run end-to-end test
         run: test/e2e.sh
 
   report:
     name: Report to Gitea
-    needs: [lint, e2e]
+    needs: [lint, megalinter, e2e, build]
     if: always() && github.server_url == 'https://github.com' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Set commit status github-ci on Gitea
         env:
           GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
-          STATE: ${{ needs.lint.result == 'success' && needs.e2e.result == 'success' && 'success' || 'failure' }}
+          STATE: ${{ needs.lint.result == 'success' && needs.megalinter.result == 'success' && needs.e2e.result == 'success' && needs.build.result == 'success' && 'success' || 'failure' }}
           URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           jq -n --arg state "$STATE" --arg url "$URL" \
-            '{state: $state, context: "github-ci", target_url: $url, description: "Lint and end-to-end test on GitHub"}' |
+            '{state: $state, context: "github-ci", target_url: $url, description: "Lint, MegaLinter, end-to-end test and build on GitHub"}' |
             curl -fsS -o /dev/null -X POST -H "Authorization: token $GITEA_TOKEN" -H "Content-Type: application/json" -d @- \
               "https://gitea.gerasch.dev/api/v1/repos/privat/ha-wireguard-client/statuses/$GITHUB_SHA"
 
   release:
     name: Check for new version
-    needs: [lint, e2e]
+    needs: [lint, megalinter, e2e]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -71,11 +95,13 @@ jobs:
       publish: ${{ steps.check.outputs.publish }}
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      # Publish only when config.yaml carries a version that is not on ghcr yet,
-      # so an existing tag is never overwritten. Any unexpected registry answer
-      # (rate limit, outage) fails the job instead of guessing.
+      # Publish only on main and only when config.yaml carries a version that is
+      # not on ghcr yet, so an existing tag is never overwritten. Other runs do
+      # not ask the registry at all. Any unexpected answer fails the job.
       - name: Compare version with registry
         id: check
         env:
@@ -83,31 +109,21 @@ jobs:
           ACTOR: ${{ github.actor }}
           EVENT: ${{ github.event_name }}
         run: |
+          if [[ $EVENT != push || $GITHUB_REF != refs/heads/main ]]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           repo=$(yq -r .image wireguard_client/config.yaml); repo=${repo#ghcr.io/}
           version=$(yq -r .version wireguard_client/config.yaml)
-          publish=false
-          token_code=$(curl -sS -o token.json -w '%{http_code}' -u "$ACTOR:$GH_TOKEN" \
-            "https://ghcr.io/token?scope=repository:$repo:pull")
-          case $token_code in
-            200)
-              code=$(curl -sS -o /dev/null -w '%{http_code}' -I \
-                -H "Authorization: Bearer $(jq -r .token token.json)" \
-                -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json" \
-                "https://ghcr.io/v2/$repo/manifests/$version")
-              case $code in
-                200) echo "$repo:$version exists" ;;
-                404) publish=true ;;
-                *) echo "::error::Registry answered $code for $repo:$version"; exit 1 ;;
-              esac
-              ;;
-            # No package yet. Without access, the push fails too, nothing is overwritten.
-            401 | 403) publish=true ;;
-            *) echo "::error::Token request answered $token_code"; exit 1 ;;
+          token=$(curl -fsS -u "$ACTOR:$GH_TOKEN" "https://ghcr.io/token?scope=repository:$repo:pull" | jq -r .token)
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -I -H "Authorization: Bearer $token" \
+            -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json" \
+            "https://ghcr.io/v2/$repo/manifests/$version")
+          case $code in
+            200) publish=false ;;
+            404) publish=true ;;
+            *) echo "::error::Registry answered $code for $repo:$version"; exit 1 ;;
           esac
-          rm -f token.json
-          if [[ $EVENT != push || $GITHUB_REF != refs/heads/main ]]; then
-            publish=false
-          fi
           echo "Publish $repo:$version: $publish"
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
@@ -122,4 +138,3 @@ jobs:
     with:
       app: wireguard_client
       publish: ${{ needs.release.outputs.publish == 'true' }}
-    secrets: inherit

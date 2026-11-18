@@ -1,6 +1,6 @@
 # https://contributors.home-assistant.io/apps/reference/configuration/
 name: WireGuard Client
-version: "1.0.1"
+version: "1.0.2"
 slug: wireguard_client
 description: Keeps this Home Assistant connected to a WireGuard server
 url: "https://github.com/DerGary/ha-wireguard-client"

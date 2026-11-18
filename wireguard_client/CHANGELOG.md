@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.2
+
+- Allowed IPs inside the home network (or another network of the host) are rejected, they would cut Home Assistant off from it.
+- Connection loss detection follows the keepalive setting, a large keepalive no longer shows a false "Nicht verbunden".
+- Clearer message for a public VPN address.
+- The sensor is reliably set to off when the app stops.
+
 ## 1.0.1
 
 - Status no longer shows "Nicht verbunden" for the first 15 seconds after a start.

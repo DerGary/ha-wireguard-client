@@ -9,7 +9,7 @@ COPY rootfs /
 # Healthy while the monitor loop keeps writing its status, see cgi-bin/health.
 # With the app watchdog on, the Supervisor restarts an unhealthy app.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=4 \
-    CMD curl -fsS -o /dev/null http://127.0.0.1:61820/cgi-bin/health || exit 1
+    CMD ["curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:61820/cgi-bin/health"]
 
 LABEL \
     org.opencontainers.image.title="Home Assistant App: WireGuard Client" \
