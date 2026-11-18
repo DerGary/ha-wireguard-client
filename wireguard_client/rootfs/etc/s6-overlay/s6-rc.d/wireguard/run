@@ -70,6 +70,9 @@ if ! wg-quick up "$CONF"; then
     exit 1
 fi
 
+# Give the first handshake a moment, so a fresh start does not flash red.
+sleep 3
+
 last_state=""
 while true; do
     if ! handshake=$(wg show "$IFACE" latest-handshakes | awk '{ print $2 }'); then
