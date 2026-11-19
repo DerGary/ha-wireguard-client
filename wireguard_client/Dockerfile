@@ -2,13 +2,25 @@
 ARG BUILD_FROM=ghcr.io/home-assistant/base:3.24@sha256:58422480a299b16b6ea376c2167463206d430619ed02b40cd687c8bd6875519e
 FROM ${BUILD_FROM}
 
-RUN apk add --no-cache wireguard-tools-wg-quick iproute2 busybox-extras
+# Pinned so Renovate updates them, each update is a new app release.
+# The repology repo must match the Alpine version of BUILD_FROM.
+# renovate: datasource=repology depName=alpine_3_24/wireguard-tools-wg-quick versioning=loose
+ARG WG_QUICK_VERSION=1.0.20260223-r0
+# renovate: datasource=repology depName=alpine_3_24/iproute2 versioning=loose
+ARG IPROUTE2_VERSION=7.0.0-r0
+# renovate: datasource=repology depName=alpine_3_24/busybox-extras versioning=loose
+ARG BUSYBOX_EXTRAS_VERSION=1.37.0-r31
+
+RUN apk add --no-cache \
+    wireguard-tools-wg-quick="${WG_QUICK_VERSION}" \
+    iproute2="${IPROUTE2_VERSION}" \
+    busybox-extras="${BUSYBOX_EXTRAS_VERSION}"
 
 COPY rootfs /
 
 # Healthy while the monitor loop keeps writing its status, see cgi-bin/health.
 # With the app watchdog on, the Supervisor restarts an unhealthy app.
-# exit 1: Docker reserves other codes, curl can end with 2.
+# exit 1: Docker documents only 0 and 1, curl ends with its own codes.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=4 \
     CMD ["sh", "-c", "curl -fsS -o /dev/null http://127.0.0.1:61820/cgi-bin/health || exit 1"]
 

@@ -54,6 +54,16 @@
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n[A-Z_]+=\\S+?:(?<currentValue>\\S+)"
       ]
+    },
+    {
+      "description": "Alpine packages pinned as ARG in the Dockerfile, marked with a '# renovate:' comment",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "wireguard_client/Dockerfile"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+) versioning=(?<versioning>\\S+)\\nARG [A-Z0-9_]+=(?<currentValue>\\S+)"
+      ]
     }
   ]
 }
