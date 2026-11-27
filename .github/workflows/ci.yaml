@@ -39,7 +39,7 @@ jobs:
         run: shellcheck wireguard_client/rootfs/etc/s6-overlay/s6-rc.d/*/{run,finish}
 
       - name: Run Home Assistant app linter
-        uses: frenck/action-addon-linter@d51677290aef26cdfc835271dd3c7343ce502809 # v2.21
+        uses: frenck/action-addon-linter@479f4f053b96ed00a83ce2c7d8f858e22475aa98 # v2.21
         with:
           path: "./wireguard_client"
 
